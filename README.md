@@ -1,133 +1,131 @@
 # Create_Risk_Control_Rules
 
 - [Create_Risk_Control_Rules](#create_risk_control_rules)
-  - [1 参数配置](#1-参数配置)
-  - [2 数据处理](#2-数据处理)
-  - [3 建模](#3-建模)
-  - [4 可视化](#4-可视化)
-  - [5 指标重要性](#5-指标重要性)
-  - [6 规则提取](#6-规则提取)
-  - [7 时间外验](#7-时间外验)
+  - [1 Parameter conf](#1-parameter-conf)
+  - [2 Data preprocessing](#2-data-preprocessing)
+  - [3 Model](#3-model)
+  - [4 Visualization](#4-visualization)
+  - [5 Feature importance](#5-feature-importance)
+  - [6 Rule extraction](#6-rule-extraction)
+  - [7 OOT](#7-oot)
 
 
-## 1 参数配置   
+## 1 Parameter conf   
 ```python
-### 1.1模型参数设置
-# 选取树模型，可换为'cart','rf','lgb','xgb','id3'\
+### 1.1 model parameter configuration
+# select tree models, the options available are'cart','rf','lgb','xgb','id3'\
 tree_type = 'lgb'
-# 数据切分比，不需要提前切分，[0, 1)之间的一个数值，若为0，则无测试集，所有数据用于训练
+# data split(needn't to do it in advance)，select a value between 0 and 1. When the value is equl to 0, it means that all data is train data.
 test_size = 0.2
-# 标签列
+# flag columns
 y_columns = 'overdueday_flag_7'
-# y_columns = 'overdue_day_7_flag'
-# 敏感词(模糊匹配的方式删除x_columns的数据)
+# Sensitive words (fuzzy match to remove data from x_columns)
 ignore_word = ['overdueday_flag_7', 'usermobile', 'overdue_day_7_flag']
-# 是否需要继续OOT,如果需要设置为True,否则设置为False
+# Whether OOT is required, set to True if required, otherwise set to False
 is_oot = False
-### 1.2 数据路径设置
-# 训练数据路径
-train_data_path = r'./raw_data/final_data_test.csv'
-# 时间外验数据路径
-checking_data_path = r'./raw_data/final_data_test.csv'
-### 1.3 保存路径配置
-# 保存总路径(最后请加/）
-sav_path = './result/'
-### 1.4 模型参数设置 ===========
-# 树深
+# tree depth
 max_depth = 5
-# 学习率，控制每次迭代更新权重时的步长，值越小，训练越慢。
+# learning_rate, smaller, slower
 learning_rate = 0.01
-# 主要是为了防止训练集某些类别的样本过多，导致训练的决策树过于偏向这些类别，可取'balanced' or None
+# The main purpose is to prevent model overfitting. preferably 'balanced' or None
 class_weight = 'balanced'
 
-# 树的个数
+# tree number
 n_estimators = 10
-# x_columns在下面，可自行配置，如果不自行配制的话，就是删除y_columns和能模糊匹配到的ignore_word后的剩余字段,
-# 如自行配置，请在下方更改x_column 并 置ignore_word为[]
-### 1.5 保存路径配置
-# 保存总路径
-# 树模型图片保存路径
+
+### 1.2 Set path
+# train data path
+train_data_path = r'./raw_data/final_data_test.csv'
+# oot data path
+checking_data_path = r'./raw_data/final_data_test.csv'
+### 1.3 Set save pth
+# First level path to save (please add / at the end)
+sav_path = './result/'
+
+## I recommend that you do not change the content of the address below.
+# x_columns is below and can be configured by yourself, if you don't configure it yourself, it is the remaining fields after deleting y_columns and the ignore_word that can be fuzzy matched,
+# If you do not configure it yourself, you can delete the y_columns and the ignore_word that can be fuzzy matched, and then change the x_column below and set the ignore_word to [].
+# picture save path
 picture_path = sav_path+tree_type+'/'+'plot/'
-# 模型保存路径
+# model save path
 model_path = sav_path+tree_type+'/'+'model/'
-# 指标重要性
+# feature importance save path
 importance_path = sav_path+tree_type+'/'+'importance/'
-# 规则保存路径
+# rule save path
 rule_path = sav_path+tree_type+'/'+'rule/'
-# oot结果保存路径
+# result of OOT save path
 oot_path = sav_path+tree_type+'/'+'oot/'
 ```
-## 2 数据处理
+## 2 Data preprocessing
 ```python
 df = pd.read_csv(train_data_path)
-# 确定x_columns
+# x_columns
 x_columns = df.columns.tolist()
 x_columns.remove(y_columns)
-# ########################### 数据预处理 ###########################
-# 初始化数据预处理模块
+# initialize
 data_pre = DataPreProcessing()
 x_columns = data_pre.ignore_func(x_columns, ignore_word)
-# 缺失值处理,放入为df，具体参数详情点入查看
-# null_function 第四个参数为0，则为不进行填充，缺失值将变为np.nan
-new_data, x_columns_new = data_pre.null_function(df, x_columns, 1, 1, ignore_columns=['overdue_day_7_flag'], is_delete=0.8,
-                                                 null_value=[-999, '-999', '\\N', 'NULL'])
-# 依据iv值进行数据筛选
-# iv_threshold为iv的取值区间，也可用columns_num,取IV值排名前columns_num个(从大到小)
-# 返回，第一个为list,为选取columns结果，第二个为df，为所有字典对应的iv值
-x_columns_final, df_iv = data_pre.select_columns(new_data, x_columns_new, y_columns, iv_threshold=[0.04, 0.5],
-                                                 columns_num=None)
+# missing value handling
+# null_function, when the fourth parameter is 0, no missing values are processed and the missing values are uniformly processed as np.nan
+new_data, x_columns_new = data_pre.null_function(df, x_columns, 1, 1, ignore_columns=['overdue_day_7_flag'], is_delete=0.8, null_value=[-999, '-999', '\\N', 'NULL'])
+# Data filtering by iv value
+# iv_threshold is the range of iv values, also use columns_num, take the top columns_num of IV values (from largest to smallest)
+# return, the first is list, the result of the selected columns, the second is df, the corresponding iv value of all dictionaries
+x_columns_final, df_iv = data_pre.select_columns(new_data, x_columns_new, y_columns, iv_threshold=[0.04, 0.5], columns_num=None)
 ```
-## 3 建模 ###########################
+## 3 Model 
 ```python
-# 初始化建模模块
+# initialize
 model_ = Model()
-# 模型预测
+# predict
 model_final = model_.train_model(tree_type, new_data, x_columns_final, y_columns, max_depth, learning_rate,
                                  n_estimators, class_weight, test_size)
-# 模型保存
+# model saving
 model_.save_model(model_final, model_path)
 
-# 模型加载
+# model lading
 model_path = model_path+'model.pkl'
 new_model = model_.load_model(model_path)
 ```
-## 4 可视化
+## 4 Visualization
 ```python
-# 初始化可视化模块
-# class_names = list(set(new_data[y_columns].astype('str')))
-# visual_ = Visualization()
-# visual_.plot(new_model, tree_type, picture_path, x_columns_final, class_names)
+# initialize
+# !!!Takes longer.
+class_names = list(set(new_data[y_columns].astype('str')))
+visual_ = Visualization()
+visual_.plot(new_model, tree_type, picture_path, x_columns_final, class_names)
 ```
 
-## 5 指标重要性 
+## 5 Feature importance 
 ```python
-# 初始化指标重要性模块
+# initialize
 importance_ = FeatureImportance()
 importance_.importance(new_model, x_columns_final, importance_path)
 ```
 
-## 6 规则提取
+## 6 Rule extraction
 ```python
-# 初始化规则提取模块
-# conclude_max参数可设置提起规则的层级，比如之前设置树深为10，可提取前N条，为None是全部提取
-# new_model 模型
-# rule_path 规则提取后存储路径，rule_path必须为xlsx文件
+# initialize
+# The conclude_max parameter sets the level of rules to be brought up, for example, if the tree depth is set to 10, the first N rules can be extracted, and None is all.
+# new_model model
+# rule_path The path where the rules are stored after extraction, rule_path must be an xlsx file
 conclude_max = None
 rule_ = GetRule()
 rule_.get_rule(tree_type, new_model, new_data, x_columns_final, y_columns, conclude_max, rule_path)
 ```
-## 7 时间外验 
+## 7 OOT 
 ```python
-# oot筛选的条件共有8个，将依据设置的条件对condition进行自动筛选，将留下的规则送入oot进行测评，
-# 如需自己筛选，则删选完后更改rule_path即可，select_condition置为[]
-# condition_select中若为1 < x < 2情况，请分为两个条件，即['x > 1', 'x > 2']  注：符号前后请留一个空格，一个！！空格！！
-# ########################### 时间外验 ###########################
-# 初始化时间外验模块
-# new_data 时间外验数据，可自定义
-# x_columns_final 特征名称
-# y_columns 目标列名称
-# rule_path_new xlsx的sheet名必须为bad和good
-# oot_path 时间外验结果保存路径
+# There are 8 conditions for oot filtering, the condition will be filtered automatically according to the conditions set, and the remaining rules will be sent to oot for evaluation.
+# If you want to filter by yourself, change the rule_path after you delete the selection and set select_condition to []
+# If the condition_select is 1 < x < 2, divide it into two conditions, i.e. ['x > 1', 'x > 2'] Note: Leave a space before and after the symbol, a ! space!!!
+
+
+# Initialize the time external verification module
+# new_data temporal outlier data, customizable
+# x_columns_final feature name
+# y_columns target column names
+# rule_path_new xlsx sheet names must be bad and good
+# oot_path The path where the results of the out-of-time checks are saved
 # es_sample_rate,es_sample_num,es_real_bad,es_real_good,es_real_bad_rate,es_real_good_rate,es_auc,es_recall
 rule_path_new = rule_path + 'rule.xlsx'
 condition_select = ['es_real_bad_rate > 0', 'es_real_good_rate > 0']
